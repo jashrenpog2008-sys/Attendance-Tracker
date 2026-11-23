@@ -1,17 +1,25 @@
+// =========================================================================
+// 1. FIREBASE CONFIGURATION (PROJECT: attendance-d38e8)
+// =========================================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyD0YwgyZCmC4tGWJxvlB5LKqPOSLPF34yw",
+  authDomain: "attendance-d38e8.firebaseapp.com",
+  projectId: "attendance-d38e8",
+  storageBucket: "attendance-d38e8.firebasestorage.app",
+  messagingSenderId: "239779596103",
+  appId: "1:239779596103:web:af5b73cdb1aacfe08c2e62",
+  measurementId: "G-2QQCBKVPWX"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const liveDocRef = db.collection("attendance").doc("live");
+
+// =========================================================================
+// 2. LIVE APPLICATION STATE (SYNCED IN REAL TIME WITH FIRESTORE)
+// =========================================================================
 let roster = [];
-try {
-  const savedRoster = JSON.parse(localStorage.getItem("attendanceRoster"));
-  roster = Array.isArray(savedRoster) ? savedRoster : [...DEFAULT_ROSTER];
-} catch (e) {
-  roster = [...DEFAULT_ROSTER];
-}
-
-function saveRoster() {
-  roster.sort((a, b) => a.lastName.localeCompare(b.lastName));
-  localStorage.setItem("attendanceRoster", JSON.stringify(roster));
-}
-
-// 2. SESSION DATA & STORAGE
 let session = {
   subject: "Math 101",
   profArrivedAt: null,
@@ -19,32 +27,57 @@ let session = {
   records: {}
 };
 
-try {
-  const savedSession = JSON.parse(localStorage.getItem("attendanceSession"));
-  if (savedSession && typeof savedSession === "object") {
+// Saves the entire state to Firestore so all devices update immediately
+async function syncToCloud() {
+  roster.sort((a, b) => a.lastName.localeCompare(b.lastName));
+  try {
+    await liveDocRef.set({
+      roster: roster,
+      subject: session.subject,
+      profArrivedAt: session.profArrivedAt,
+      isClosed: session.isClosed,
+      records: session.records,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (err) {
+    console.error("Firestore sync error:", err);
+    alert("Failed to sync to cloud: " + err.message);
+  }
+}
+
+// Real-time listener: updates both Recorder and Student pages automatically
+liveDocRef.onSnapshot((doc) => {
+  if (doc.exists) {
+    const data = doc.data();
+    roster = Array.isArray(data.roster) ? data.roster : [];
     session = {
-      subject: savedSession.subject || "Math 101",
-      profArrivedAt: savedSession.profArrivedAt || null,
-      isClosed: Boolean(savedSession.isClosed),
-      records: savedSession.records && typeof savedSession.records === "object" ? savedSession.records : {}
+      subject: data.subject || "Math 101",
+      profArrivedAt: data.profArrivedAt || null,
+      isClosed: Boolean(data.isClosed),
+      records: data.records && typeof data.records === "object" ? data.records : {}
     };
   }
-} catch (e) {
-  // Keeps default fresh session if localStorage was corrupted
-}
+  updateRecorderUI();
+  renderStudentPortal();
+}, (err) => {
+  console.error("Realtime listener error:", err);
+});
 
-function saveSession() {
-  localStorage.setItem("attendanceSession", JSON.stringify(session));
-}
-
+// =========================================================================
+// 3. SUBJECT & TIME UTILITIES
+// =========================================================================
+let subjectTimer = null;
 function updateSubject() {
   const input = document.getElementById("subjectInput");
   if (!input) return;
   session.subject = input.value.trim() || "Untitled Subject";
-  saveSession();
+
+  clearTimeout(subjectTimer);
+  subjectTimer = setTimeout(() => {
+    syncToCloud();
+  }, 400);
 }
 
-// 3. TIME & DATE UTILITIES
 function getFormattedTime(dateObj = new Date()) {
   return dateObj.toTimeString().split(" ")[0];
 }
@@ -58,50 +91,75 @@ setInterval(() => {
   if (clock) clock.textContent = `Date: ${getFormattedDate()} | Current Time: ${getFormattedTime()}`;
 }, 1000);
 
-// 4. RECORDER SECURITY GATE
-function unlockRecorder() {
-  const pinInput = document.getElementById("pinInput");
-  const pin = pinInput ? pinInput.value.trim() : "";
+// =========================================================================
+// 4. FIREBASE AUTHENTICATION (RECORDER LOGIN / LOGOUT)
+// =========================================================================
+auth.onAuthStateChanged((user) => {
+  const loginSection = document.getElementById("loginSection");
+  const dashboard = document.getElementById("recorderDashboard");
+  if (!loginSection || !dashboard) return;
 
-  if (pin === "1234") {
-    const loginSection = document.getElementById("loginSection");
-    const dashboard = document.getElementById("recorderDashboard");
-
+  if (user) {
     loginSection.classList.add("hidden");
     loginSection.style.display = "none";
-
     dashboard.classList.remove("hidden");
     dashboard.style.display = "block";
-
-    const subjectInput = document.getElementById("subjectInput");
-    if (subjectInput) subjectInput.value = session.subject || "Math 101";
-
-    const lastNameInput = document.getElementById("lastNameInput");
-    if (lastNameInput && !session.isClosed) lastNameInput.focus();
-
     updateRecorderUI();
   } else {
-    alert("Incorrect PIN. Enter 1234.");
+    loginSection.classList.remove("hidden");
+    loginSection.style.display = "block";
+    dashboard.classList.add("hidden");
+    dashboard.style.display = "none";
+  }
+});
+
+async function unlockRecorder() {
+  const email = document.getElementById("emailInput").value.trim();
+  const password = document.getElementById("passwordInput").value;
+  const errorBox = document.getElementById("loginError");
+  const btn = document.getElementById("loginBtn");
+
+  if (!email || !password) {
+    errorBox.textContent = "Please enter both email and password.";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Signing in...";
+  errorBox.textContent = "";
+
+  try {
+    await auth.signInWithEmailAndPassword(email, password);
+  } catch (err) {
+    errorBox.textContent = "Login failed: " + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Sign In";
   }
 }
 
-const pinInput = document.getElementById("pinInput");
-if (pinInput) {
-  pinInput.addEventListener("keypress", (e) => {
+function logoutRecorder() {
+  auth.signOut();
+}
+
+const passwordInput = document.getElementById("passwordInput");
+if (passwordInput) {
+  passwordInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter") unlockRecorder();
   });
 }
 
+// =========================================================================
 // 5. CORE CLASS STATE CONTROLS
-function markProfArrived() {
+// =========================================================================
+async function markProfArrived() {
   if (session.isClosed) return;
   session.profArrivedAt = getFormattedTime();
-  saveSession();
-  updateRecorderUI();
+  await syncToCloud();
   document.getElementById("lastNameInput").focus();
 }
 
-function endClass() {
+async function endClass() {
   if (session.isClosed) return;
   if (!confirm("End class now? Anyone not yet recorded will be marked ABSENT.")) return;
 
@@ -115,34 +173,29 @@ function endClass() {
   });
 
   session.isClosed = true;
-  saveSession();
-  updateRecorderUI();
+  await syncToCloud();
 }
 
-function resetDemo() {
-  const keptSubject = session.subject || "Math 101";
-  localStorage.setItem("attendanceSession", JSON.stringify({
-    subject: keptSubject,
-    profArrivedAt: null,
-    isClosed: false,
-    records: {}
-  }));
-  location.reload();
-}
-
-// Add this function right below resetDemo() in Section 5 of app.js:
-function clearAllStudents() {
-  if (!confirm("Delete ALL students from the roster and clear current attendance records?")) return;
-  roster = [];
-  localStorage.setItem("attendanceRoster", JSON.stringify([]));
-  session.records = {};
+async function resetDemo() {
+  if (!confirm("Reset attendance logs and timer for a new session? (Your student roster will stay saved.)")) return;
   session.profArrivedAt = null;
   session.isClosed = false;
-  saveSession();
-  updateRecorderUI();
+  session.records = {};
+  await syncToCloud();
 }
 
+async function clearAllStudents() {
+  if (!confirm("Delete ALL students from the cloud roster and clear current attendance records?")) return;
+  roster = [];
+  session.profArrivedAt = null;
+  session.isClosed = false;
+  session.records = {};
+  await syncToCloud();
+}
+
+// =========================================================================
 // 6A. SINGLE ADD STUDENT PANEL
+// =========================================================================
 function openAddStudentPanel(prefillLastName = "") {
   if (session.isClosed) {
     alert("Session is closed. Click 'Reset Session' first.");
@@ -184,7 +237,7 @@ function toggleAddStudentPanel(prefillLastName = "") {
   else closeAddStudentPanel();
 }
 
-function addNewStudent() {
+async function addNewStudent() {
   if (session.isClosed) return;
 
   const idInput = document.getElementById("newStudentId").value.trim();
@@ -205,10 +258,8 @@ function addNewStudent() {
 
   const newStudent = { id: studentId, lastName, firstName };
   roster.push(newStudent);
-  saveRoster();
-
   closeAddStudentPanel();
-  logStudent(newStudent);
+  await logStudent(newStudent);
 }
 
 ["newStudentId", "newLastName", "newFirstName"].forEach(fieldId => {
@@ -223,7 +274,9 @@ function addNewStudent() {
   }
 });
 
+// =========================================================================
 // 6B. MASS ADD STUDENTS PANEL
+// =========================================================================
 function openMassAddPanel() {
   closeAddStudentPanel(false);
   const panel = document.getElementById("massAddPanel");
@@ -249,7 +302,7 @@ function toggleMassAddPanel() {
   else closeMassAddPanel();
 }
 
-function massAddStudents() {
+async function massAddStudents() {
   const rawText = document.getElementById("massStudentInput").value.trim();
   const replaceExisting = document.getElementById("replaceRosterCheck").checked;
 
@@ -296,12 +349,7 @@ function massAddStudents() {
       return;
     }
 
-    if (!lastName || !firstName) {
-      skippedCount++;
-      return;
-    }
-
-    if (roster.some(s => s.id.toLowerCase() === studentId.toLowerCase())) {
+    if (!lastName || !firstName || roster.some(s => s.id.toLowerCase() === studentId.toLowerCase())) {
       skippedCount++;
       return;
     }
@@ -310,18 +358,14 @@ function massAddStudents() {
     addedCount++;
   });
 
-  if (roster.length === 0) {
-    roster = [...DEFAULT_ROSTER];
-  }
-
-  saveRoster();
+  await syncToCloud();
   closeMassAddPanel();
-  updateRecorderUI();
-
-  alert(`Import complete: ${addedCount} student(s) added.${skippedCount > 0 ? ` (${skippedCount} invalid/duplicate line(s) skipped)` : ""}`);
+  alert(`Import complete: ${addedCount} student(s) synced to cloud.${skippedCount > 0 ? ` (${skippedCount} skipped)` : ""}`);
 }
 
+// =========================================================================
 // 7. FAST LAST-NAME AUTOCOMPLETE & ENTER-TO-LOG LOGIC
+// =========================================================================
 const lastNameInput = document.getElementById("lastNameInput");
 const autocompleteList = document.getElementById("autocompleteList");
 let currentMatches = [];
@@ -338,7 +382,6 @@ if (lastNameInput) {
       return;
     }
 
-    // Prioritize Last Name startsWith, then fallback to partial match on Last Name, First Name, or ID
     const exactStart = roster.filter(s => s.lastName.toLowerCase().startsWith(query));
     const partialMatch = roster.filter(s =>
       !s.lastName.toLowerCase().startsWith(query) &&
@@ -389,7 +432,9 @@ if (lastNameInput) {
   });
 }
 
+// =========================================================================
 // 8. RECORDING A STUDENT'S ATTENDANCE
+// =========================================================================
 function showLogFeedback(message) {
   let banner = document.getElementById("logFeedbackBanner");
   if (!banner && lastNameInput) {
@@ -405,7 +450,7 @@ function showLogFeedback(message) {
   }
 }
 
-function logStudent(student) {
+async function logStudent(student) {
   if (!student || session.isClosed) return;
 
   const nowTime = getFormattedTime();
@@ -416,7 +461,6 @@ function logStudent(student) {
     time: nowTime
   };
 
-  saveSession();
   if (lastNameInput) {
     lastNameInput.value = "";
     lastNameInput.focus();
@@ -425,11 +469,14 @@ function logStudent(student) {
     autocompleteList.classList.add("hidden");
   }
   currentMatches = [];
-  updateRecorderUI();
-  showLogFeedback(`✓ Logged ${student.lastName}, ${student.firstName} — ${status} (${nowTime})`);
+
+  await syncToCloud();
+  showLogFeedback(`✓ Synced ${student.lastName}, ${student.firstName} — ${status} (${nowTime})`);
 }
 
+// =========================================================================
 // 9. EXPORT TO .TXT AND .PDF
+// =========================================================================
 function buildReportData() {
   const subjectName = session.subject || "Untitled Subject";
   const dateStr = getFormattedDate();
@@ -476,10 +523,7 @@ function exportToTxt() {
   ];
 
   data.rows.forEach(r => {
-    const colId = r.id.padEnd(14, " ");
-    const colName = r.name.padEnd(29, " ");
-    const colStatus = r.status.padEnd(7, " ");
-    lines.push(`${colId} | ${colName} | ${colStatus} | ${r.time}`);
+    lines.push(`${r.id.padEnd(14, " ")} | ${r.name.padEnd(29, " ")} | ${r.status.padEnd(7, " ")} | ${r.time}`);
   });
 
   lines.push("================================================================");
@@ -487,7 +531,6 @@ function exportToTxt() {
   const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-
   link.href = url;
   link.download = `Attendance_${safeSubject}_${data.dateStr}.txt`;
   document.body.appendChild(link);
@@ -504,9 +547,7 @@ function exportToPdf() {
   const safeSubject = data.subjectName.replace(/[^a-z0-9]/gi, "_");
 
   try {
-    if (!window.jspdf || !window.jspdf.jsPDF) {
-      throw new Error("jsPDF library not loaded");
-    }
+    if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("jsPDF not loaded");
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
@@ -520,41 +561,38 @@ function exportToPdf() {
     doc.text(`Date: ${data.dateStr}   |   Prof Arrival: ${data.profTime}`, 14, 26);
     doc.text(`Total: ${roster.length}   |   Present: ${data.present}   |   Late: ${data.late}   |   Absent: ${data.absent}`, 14, 32);
 
-    if (typeof doc.autoTable === "function") {
-      doc.autoTable({
-        startY: 38,
-        head: [["Student ID", "Last Name, First Name", "Status", "Time Logged"]],
-        body: data.rows.map(r => [r.id, r.name, r.status, r.time]),
-        theme: "grid",
-        headStyles: { fillColor: [30, 41, 59] },
-        styles: { fontSize: 9.5 }
-      });
-    } else {
-      let y = 42;
-      data.rows.forEach(r => {
-        doc.text(`${r.id}  |  ${r.name}  |  ${r.status}  |  ${r.time}`, 14, y);
-        y += 7;
-      });
-    }
+    doc.autoTable({
+      startY: 38,
+      head: [["Student ID", "Last Name, First Name", "Status", "Time Logged"]],
+      body: data.rows.map(r => [r.id, r.name, r.status, r.time]),
+      theme: "grid",
+      headStyles: { fillColor: [30, 41, 59] },
+      styles: { fontSize: 9.5 }
+    });
 
     doc.save(`Attendance_${safeSubject}_${data.dateStr}.pdf`);
   } catch (err) {
-    console.warn("PDF generation fallback triggered:", err);
-    alert("Direct PDF library unavailable offline — opening Print / Save as PDF dialog instead.");
     window.print();
   }
 }
 
+// =========================================================================
 // 10. UI RENDERERS
+// =========================================================================
 function updateRecorderUI() {
   const badge = document.getElementById("sessionStatusBadge");
   const profBtn = document.getElementById("profArrivedBtn");
   const endBtn = document.getElementById("endClassBtn");
   const addBtn = document.getElementById("toggleAddBtn");
+  const subjectInput = document.getElementById("subjectInput");
   const tbody = document.getElementById("attendanceTableBody");
   const summaryBar = document.getElementById("summaryBar");
 
   if (!tbody) return;
+
+  if (subjectInput && document.activeElement !== subjectInput) {
+    subjectInput.value = session.subject || "Math 101";
+  }
 
   if (session.isClosed) {
     badge.textContent = "Class Ended (Locked)";
@@ -567,6 +605,16 @@ function updateRecorderUI() {
     badge.textContent = `Prof Arrived at ${session.profArrivedAt} (Recording LATE)`;
     badge.className = "badge badge-active";
     profBtn.disabled = true;
+    endBtn.disabled = false;
+    if (addBtn) addBtn.disabled = false;
+    if (lastNameInput) lastNameInput.disabled = false;
+  } else {
+    badge.textContent = "Waiting for Prof (On-Time Window)";
+    badge.className = "badge badge-waiting";
+    profBtn.disabled = false;
+    endBtn.disabled = false;
+    if (addBtn) addBtn.disabled = false;
+    if (lastNameInput) lastNameInput.disabled = false;
   }
 
   const data = buildReportData();
@@ -638,5 +686,3 @@ function renderStudentPortal() {
     }
   });
 }
-
-renderStudentPortal();
