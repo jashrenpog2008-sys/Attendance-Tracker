@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Attendance Portal - BSIE 1-5</title>
+  <link rel="stylesheet" href="style.css?v=4">
+  <!-- Firebase SDKs for live read-only updates -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+  <div class="container">
+    <header>
+      <div>
+        <h2 id="studentPortalSubject">Loading Attendance...</h2>
+        <small class="text-muted">BSIE 1-5 — Live Read-Only View</small>
+      </div>
+      <a href="recorder.html" class="nav-link">Recorder Login →</a>
+    </header>
+
+    <div class="input-group">
+      <input type="text" id="studentSearchInput" placeholder="Search by Last Name or Student ID..." onkeyup="renderStudentPortal()">
+    </div>
+
+    <div id="studentSummaryBar" class="summary-bar"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Student ID</th>
+          <th>Name</th>
+          <th>Status</th>
+          <th>Time Logged</th>
+        </tr>
+      </thead>
+      <tbody id="studentPortalBody"></tbody>
+    </table>
+  </div>
+
+  <script src="app.js?v=4"></script>
+</body>
+</html>

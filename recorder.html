@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attendance Recorder - BSIE 1-5</title>
+ <!-- Replace line 7 in <head> -->
+  <link rel="stylesheet" href="style.css?v=3">
+  <!-- jsPDF & AutoTable libraries for direct PDF file generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+
+  <!-- STEP 1: Security Gate -->
+  <div id="loginSection" class="container" style="max-width: 400px; margin-top: 80px;">
+    <h2 style="margin-bottom: 10px;">Recorder Access</h2>
+    <p class="text-muted" style="margin-bottom: 15px;">Enter your Class Officer PIN to record attendance.</p>
+    <input type="password" id="pinInput" placeholder="Enter PIN (Default: 1234)" style="margin-bottom: 12px;">
+    <button class="btn-primary" style="width: 100%;" onclick="unlockRecorder()">Unlock Dashboard</button>
+  </div>
+
+  <!-- STEP 2: Main Recorder Dashboard -->
+  <div id="recorderDashboard" class="container hidden" style="display: none;">
+    <header>
+      <div>
+        <!-- Editable Subject Input -->
+        <div class="subject-box">
+          <label for="subjectInput" class="text-muted" style="font-weight: 600;">Subject:</label>
+          <input type="text" id="subjectInput" class="subject-input" placeholder="Enter Subject Name..." oninput="updateSubject()">
+        </div>
+        <small id="clockDisplay" class="text-muted" style="font-weight: bold;"></small>
+      </div>
+      <span id="sessionStatusBadge" class="badge badge-waiting">Waiting for Prof (On-Time Window)</span>
+    </header>
+
+    <!-- Primary Controls -->
+    <div class="controls">
+      <button id="profArrivedBtn" class="btn-warning" onclick="markProfArrived()">
+        Professor Arrived
+      </button>
+      <button id="endClassBtn" class="btn-danger" onclick="endClass()">
+        End Class
+      </button>
+      <button id="toggleAddBtn" class="btn-success" onclick="toggleAddStudentPanel()">
+        + Add Student
+      </button>
+      <button id="toggleMassBtn" class="btn-primary" onclick="toggleMassAddPanel()">
+        Mass Add
+      </button>
+      <button class="btn-export" onclick="exportToTxt()">
+        Export .TXT
+      </button>
+      <button class="btn-export" onclick="exportToPdf()">
+        Export .PDF
+      </button>
+      <button class="btn-neutral" style="margin-left: auto;" onclick="resetDemo()">
+        Reset Session
+      </button>
+      <button class="btn-danger" onclick="clearAllStudents()">
+        Clear Roster
+      </button>
+    </div>
+
+    <!-- Panel A: Single Add Student -->
+    <div id="addStudentPanel" class="panel-box hidden" style="display: none;">
+      <div class="panel-header">
+        <strong style="font-size: 0.95rem; color: #34d399;">Add Single Student & Log Attendance</strong>
+        <button class="btn-neutral" style="padding: 4px 10px; font-size: 0.8rem;" onclick="closeAddStudentPanel()">Cancel</button>
+      </div>
+      <div class="add-student-grid">
+        <input type="text" id="newStudentId" placeholder="Student ID (Optional)">
+        <input type="text" id="newLastName" placeholder="Last Name *">
+        <input type="text" id="newFirstName" placeholder="First Name *">
+        <button class="btn-success" onclick="addNewStudent()">Save & Log</button>
+      </div>
+    </div>
+
+    <!-- Panel B: Mass Add Students -->
+    <div id="massAddPanel" class="panel-box hidden" style="display: none;">
+      <div class="panel-header">
+        <strong style="font-size: 0.95rem; color: #60a5fa;">Mass Add Students to Roster</strong>
+        <button class="btn-neutral" style="padding: 4px 10px; font-size: 0.8rem;" onclick="closeMassAddPanel()">Cancel</button>
+      </div>
+      <p class="text-muted" style="margin-bottom: 8px; font-size: 0.85rem;">
+        Paste one student per line. Supports Excel/Sheets copy-paste or commas:<br>
+        <code>2026-0001, Dupende, Jashren Arl</code> &nbsp;or&nbsp; <code>Dupende, Jashren Arl</code>
+      </p>
+      <textarea id="massStudentInput" placeholder="2026-0001, Dupende, Jashren Arl&#10;2026-0002, Santos, Juan&#10;Reyes, Maria"></textarea>
+      <div class="mass-footer">
+        <label class="checkbox-label">
+          <input type="checkbox" id="replaceRosterCheck">
+          Replace existing roster (clears sample list first)
+        </label>
+        <button class="btn-primary" onclick="massAddStudents()">Import Students</button>
+      </div>
+    </div>
+
+    <!-- Fast Last-Name Input Field -->
+    <div class="input-group">
+      <input type="text" id="lastNameInput" placeholder="Type student's LAST NAME and press Enter..." autocomplete="off">
+      <div id="autocompleteList" class="autocomplete-list hidden"></div>
+    </div>
+
+    <!-- Live Counts -->
+    <div id="summaryBar" class="summary-bar"></div>
+
+    <!-- Live Attendance Log Table -->
+    <table>
+      <thead>
+        <tr>
+          <th>Student ID</th>
+          <th>Last Name, First Name</th>
+          <th>Status</th>
+          <th>Time Logged (HH:MM:SS)</th>
+        </tr>
+      </thead>
+      <tbody id="attendanceTableBody"></tbody>
+    </table>
+  </div>
+
+  <script src="app.js?v=3"></script>
+</body>
+</html>
